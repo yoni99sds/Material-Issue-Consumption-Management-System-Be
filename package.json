@@ -3,11 +3,12 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
-  "scripts": {
-    "dev": "ts-node src/server.ts",
-     "seed": "ts-node scripts/seed.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
+"scripts": {
+  "dev": "ts-node src/server.ts",
+  "build": "node ./node_modules/typescript/bin/tsc",
+  "start": "node dist/server.js",
+  "seed": "ts-node scripts/seed.ts"
+},
   "keywords": [],
   "author": "",
   "license": "ISC",
