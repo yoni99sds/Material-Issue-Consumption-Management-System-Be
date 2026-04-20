@@ -75,4 +75,23 @@ router.delete("/:id", authMiddleware, async (req: AuthRequest, res: Response) =>
   }
 });
 
+
+router.get("/seed-admin", async (req, res) => {
+  try {
+    await User.deleteMany({}); // optional reset
+
+    const hashedPassword = await bcrypt.hash("admin123", 10);
+
+    await User.create({
+      username: "admin",
+      password: hashedPassword,
+      role: "admin",
+    });
+
+    res.json({ message: "Admin seeded successfully" });
+  } catch (err) {
+    res.status(500).json({ error: err });
+  }
+});
+
 export default router;
