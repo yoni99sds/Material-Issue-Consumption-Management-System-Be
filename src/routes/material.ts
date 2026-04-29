@@ -4,110 +4,119 @@ import { authMiddleware, AuthRequest } from "../middleware/auth.middleware";
 
 const router = Router();
 
-// ==========================
-// ✅ CREATE (PROTECTED)
-// ==========================
+/* =========================
+   CREATE (FIXED + SAFE)
+========================= */
 router.post("/", authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { header, rows } = req.body;
 
-    if (!header || !rows) {
-      return res.status(400).json({ message: "Missing header or rows" });
+    if (!header?.machine || !header?.workOrderNo) {
+      return res.status(400).json({
+        message: "Machine and Work Order are required",
+      });
     }
 
-    // 🔥 attach logged-in user automatically
-    header.operator = req.user?.username;
-    header.operatorId = req.user?._id; // optional but recommended
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ message: "Rows required" });
+    }
 
     const newIssue = new MaterialIssue({
-      header,
-      rows,
-      createdBy: req.user?._id,
-      role: req.user?.role,
+      header: {
+        date: new Date().toISOString(),
+        machine: header.machine?.trim() || "",
+        workOrderNo: header.workOrderNo?.trim() || "",
+        jobDescription: header.jobDescription || "",
+        shift: header.shift || "Day",
+        operator: req.user?.username || "unknown",
+        status: "pending",
+      },
+      rows: rows.map((r: any, index: number) => ({
+        sn: r.sn ?? index + 1,
+        description: r.description || "",
+        rollNo: r.rollNo || "",
+        width: r.width ?? 0,
+        weight: r.weight ?? 0,
+        issuedLength: r.issuedLength ?? 0,
+        waste: r.waste ?? 0,
+        actualSheetProduced: r.actualSheetProduced ?? 0,
+        sheetSize: r.sheetSize || "",
+      })),
     });
 
-    await newIssue.save();
-
-    res.status(201).json(newIssue);
-  } catch (error) {
-    res.status(500).json({ message: "Server error", error });
+    const saved = await newIssue.save();
+    return res.status(201).json(saved);
+  } catch (err: any) {
+    console.error("CREATE ERROR:", err);
+    return res.status(500).json({ message: "Server error" });
   }
 });
 
-// ==========================
-// ✅ GET ALL (ROLE BASED)
-// ==========================
+/* =========================
+   GET ALL (🔥 FINAL FIX)
+   - handles missing header safely
+   - removes undefined issues
+   - supports old + new structure
+========================= */
 router.get("/", authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const user = req.user;
+    const issues = await MaterialIssue.find()
+      .sort({ createdAt: -1 })
+      .lean();
 
-    let query: any = {};
+    const normalized = issues.map((i: any) => {
+      const header = i.header || {};
 
-    // 🔥 ROLE-BASED DATA ACCESS
-    if (user?.role === "operator") {
-      query = { "header.operator": user.username };
-    }
+      return {
+        ...i,
 
-    if (user?.role === "supervisor") {
-      query = {}; // supervisor sees all but can be filtered later
-    }
+        header: {
+          machine: header.machine ?? i.machine ?? "-",
+          workOrderNo: header.workOrderNo ?? i.workOrderNo ?? "-",
+          operator: header.operator ?? i.operator ?? "-",
+          status: header.status ?? i.status ?? "pending",
+        },
+      };
+    });
 
-    if (user?.role === "admin") {
-      query = {}; // full access
-    }
-
-    const issues = await MaterialIssue.find(query).sort({ createdAt: -1 });
-
-    res.json(issues);
-  } catch (error) {
-    res.status(500).json({ message: "Failed to fetch data", error });
+    return res.json(normalized);
+  } catch (err) {
+    console.error("GET ERROR:", err);
+    return res.status(500).json({ message: "Failed to fetch" });
   }
 });
 
-// ==========================
-// ✅ UPDATE (PROTECTED)
-// ==========================
+/* =========================
+   UPDATE STATUS
+========================= */
 router.put("/:id", authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
+    const { status } = req.body;
+
     const updated = await MaterialIssue.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      { "header.status": status },
       { new: true }
     );
 
-    if (!updated) {
-      return res.status(404).json({ message: "Not found" });
-    }
-
-    res.json(updated);
-  } catch (error) {
-    res.status(500).json({ message: "Update failed", error });
+    return res.json(updated);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Update failed" });
   }
 });
 
-// ==========================
-// ✅ DELETE (ADMIN ONLY)
-// ==========================
-router.delete(
-  "/:id",
-  authMiddleware,
-  async (req: AuthRequest, res: Response) => {
-    try {
-      if (req.user?.role !== "admin") {
-        return res.status(403).json({ message: "Forbidden" });
-      }
-
-      const deleted = await MaterialIssue.findByIdAndDelete(req.params.id);
-
-      if (!deleted) {
-        return res.status(404).json({ message: "Not found" });
-      }
-
-      res.json({ message: "Deleted successfully" });
-    } catch (error) {
-      res.status(500).json({ message: "Delete failed", error });
-    }
+/* =========================
+   DELETE
+========================= */
+router.delete("/:id", authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    await MaterialIssue.findByIdAndDelete(req.params.id);
+    return res.json({ message: "Deleted" });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Delete failed" });
   }
-);
+});
 
 export default router;
